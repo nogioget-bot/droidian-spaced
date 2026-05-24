@@ -13,8 +13,6 @@ jobs:
     steps:
     - name: Checkout kernel sources
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
 
     - name: Set up Build Environment
       run: |
@@ -27,7 +25,7 @@ jobs:
       env:
         RELENG_HOST_ARCH: arm64
       run: |
-        git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/droidian/releng-tools /tmp/releng-tools
+        git clone https://github.com/droidian-releng/droidian-build-tools /tmp/releng-tools
         sudo ln -s /tmp/releng-tools/releng-build-package /usr/bin/releng-build-package
         sudo ln -s /tmp/releng-tools/releng-build-changelog /usr/bin/releng-build-changelog
         sudo ln -s $(which clang) /usr/bin/clang-10
