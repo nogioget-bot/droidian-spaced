@@ -20,6 +20,9 @@ jobs:
         sudo apt-get install -y build-essential debhelper devscripts equivs git \
           gcc-aarch64-linux-gnu bc bison flex libelf-dev libssl-dev libkmod-dev \
           kmod rsync u-boot-tools clang
+          
+        # Скачиваем те самые общие шаблоны (snippets), без которых дебиановский rules отказывается работать
+        sudo git clone https://github.com/droidian-releng/linux-packaging-snippets /usr/share/linux-packaging-snippets
 
     - name: Build Droidian Kernel Package
       env:
@@ -34,11 +37,11 @@ jobs:
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 3. Просто запускаем сборку. dpkg-buildpackage сам прочитает debian/kernel-info.mk!
+        # 3. Запускаем сборку. Теперь rules найдет свой kernel-snippet.mk!
         dpkg-buildpackage -b -d -uc -us
-        
+
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: Droidian-Kernel-Packages
-        path: ./*.deb
+        path: ../*.deb
