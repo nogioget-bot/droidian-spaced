@@ -34,11 +34,18 @@ for file in Makefile arch/arm64/Makefile; do
   fi
 done
 
-# 5. Ищем и линкуем потерянный аудио-заголовок mtk-dsp-mem-control.h
-echo "[+] Поиск и линковка mtk-dsp-mem-control.h..."
+# 5. Ищем и линкуем аудио-заголовки MediaTek DSP
+echo "[+] Поиск и линковка mtk-dsp-mem-control.h и его зависимостей..."
 DSP_H_PATH=$(find . -name "mtk-dsp-mem-control.h" -print -quit)
 if [ ! -z "$DSP_H_PATH" ]; then
   cp "$DSP_H_PATH" include/
+fi
+
+# НОВЫЙ ФИКС: Ищем сопутствующий mtk-base-dsp.h и кидаем туда же
+DSP_BASE_H=$(find . -name "mtk-base-dsp.h" -print -quit)
+if [ ! -z "$DSP_BASE_H" ]; then
+  echo "[+] Найдена зависимость DSP: $DSP_BASE_H, копируем в include/"
+  cp "$DSP_BASE_H" include/
 fi
 
 # 6. Фиксим dt_idle_states.h для cpuidle подсистемы управления питанием
@@ -56,6 +63,14 @@ fi
 if [ -f include/linux/keyslot-manager.h ]; then
   echo "[+] Убираем inline у функции ksm_flock..."
   sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
+fi
+
+# 8. НОВЫЙ ФИКС: Ищем helio-dvfsrc-qos.h и вытаскиваем в глобальные инклуды
+echo "[+] Поиск и исправление путей для helio-dvfsrc-qos.h..."
+DVFSRC_H=$(find . -name "helio-dvfsrc-qos.h" -print -quit)
+if [ ! -z "$DVFSRC_H" ]; then
+  cp "$DVFSRC_H" include/
+  cp "$DVFSRC_H" include/linux/
 fi
 
 echo "=== АВТОПОЧИНКА УСПЕШНО ЗАВЕРШЕНА ==="
