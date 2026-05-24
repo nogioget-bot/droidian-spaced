@@ -26,6 +26,9 @@ jobs:
         DEB_BUILD_OPTIONS: nocheck
         DH_VERBOSE: 1
       run: |
+        # Смотрим, какие файлы вообще скачались и где мы находимся
+        ls -la
+        
         # Обманываем сборщик версией Clang
         sudo ln -s $(which clang) /usr/bin/clang-10
         
