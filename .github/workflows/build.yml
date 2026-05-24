@@ -1,183 +1,86 @@
-name: Build Droidian Kernel
+name: Сборка ядра Droidian для Realme 8i
 
 on:
-  push:
-    branches:
-      - '**'
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout kernel sources
+    - name: Скачивание исходного кода ядра
       uses: actions/checkout@v4
 
-    - name: Build Droidian Kernel Package
-      env:
-        DEB_BUILD_OPTIONS: nocheck
-        DH_VERBOSE: 1
+    - name: Установка окружения и зависимостей компиляции
       run: |
-        # 1. Устанавливаем кросс-компилятор GCC и линкер для arm64
-        sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu
-        
-        # 2. Создаем пути для компилятора
-        sudo mkdir -p /usr/lib/llvm-android-10.0-r370808/bin
-        sudo ln -sf $(which clang) /usr/lib/llvm-android-10.0-r370808/bin/clang
-        sudo ln -sf $(which clang) /usr/bin/clang-10
-        sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
-        
-        # 3. Полностью отключаем все предупреждения (warnings) и Werror в Makefile
+        sudo apt-get update
+        sudo apt-get install -y bc build-essential libncurses-dev bison flex libssl-dev libelf-dev xz-utils git make ccache clang lld llvm libgmp-dev libmpfr-dev libmpc-dev aarch64-linux-gnu-gcc dpkg-dev
+
+    - name: Патчинг исходников и компиляция ядра
+      run: |
+        echo "Глушим все предупреждения (warnings) в Makefile..."
         if [ -f Makefile ]; then
-          echo "Глушим все предупреждения (warnings) в Makefile..."
-          sed -i 's/-Werror//g' Makefile
-          sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
-          sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
-          
-          echo "Добавляем скрытые папки MediaTek и Oppo в глобальный поиск инклудов..."
-          sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp -I$(srctree)/drivers/gpu/drm/mediatek -I$(srctree)/drivers/iommu -I$(srctree)/drivers/input/touchscreen/oplus_touchscreen |g' Makefile
+          sed -i 's/-Wall/-w/g' Makefile
+          sed -i 's/-Wformat/-w/g' Makefile
         fi
-        
-        # 4. Фиксим пути трейсинга uifirst
-        if [ -f kernel/uifirst/uifirst_sched_trace.h ]; then
-          echo "Фиксим пути для uifirst_sched_trace.h..."
+
+        echo "Добавляем скрытые папки MediaTek и Oppo в глобальный поиск инклудов..."
+        LINUX_MAKEFILE="Makefile"
+        if [ -f "$LINUX_MAKEFILE" ]; then
+          sed -i '/NOSTDINC_FLAGS/d' $LINUX_MAKEFILE
+          echo 'NOSTDINC_FLAGS := -I$(srctree)/include -I$(srctree)/arch/arm64/include -I$(srctree)/drivers/misc/mediatek/include -I$(srctree)/drivers/misc/mediatek/include/mt-plat -I$(srctree)/drivers/misc/mediatek/include/mt-plat/mt6781 -I$(srctree)/vendor/oplus/kernel/system/include' >> $LINUX_MAKEFILE
+        fi
+
+        echo "Фиксим пути для uifirst_sched_trace.h..."
+        UIFIRST_H=$(find . -name "uifirst_sched_trace.h" -print -quit)
+        if [ ! -z "$UIFIRST_H" ]; then
           mkdir -p include/trace/events
-          cp kernel/uifirst/uifirst_sched_trace.h include/trace/events/uifirst_sched_trace.h
-          cp kernel/uifirst/uifirst_sched_trace.h include/uifirst_sched_trace.h
-          sed -i 's|#define TRACE_INCLUDE_PATH .|#define TRACE_INCLUDE_PATH ../../kernel/uifirst|g' kernel/uifirst/uifirst_sched_futex.c || true
+          cp "$UIFIRST_H" include/trace/events/
         fi
 
-        # 5. Фиксим ошибку инлинга в oplus_wakelock_profiler_mtk.c
-        if [ -f drivers/base/power/owakelock/oplus_wakelock_profiler_mtk.c ]; then
-          echo "Убираем ломающий extern inline у ws_all_release..."
-          sed -i 's/extern inline bool ws_all_release/bool ws_all_release/g' drivers/base/power/owakelock/oplus_wakelock_profiler_mtk.c
+        echo "Убираем ломающий extern inline у ws_all_release..."
+        WS_FILE=$(find . -name "oplus_local_modules.h" -print -quit || find . -name "oplus_ws.h" -print -quit)
+        if [ ! -z "$WS_FILE" ] && [ -f "$WS_FILE" ]; then
+          sed -i 's/extern inline void ws_all_release/void ws_all_release/g' "$WS_FILE"
         fi
 
-        # 6. Аккуратный фикс кривого флага декларации функций
         echo "Фиксим флаг декларации функций..."
-        for file in Makefile arch/arm64/Makefile; do
-          if [ -f "$file" ]; then
-            sed -i 's/-implicit-function-declaration/-Wimplicit-function-declaration/g' "$file"
+        for f in $(find . -name "Makefile" -o -name "Kbuild"); do
+          if grep -q "Werror" "$f"; then
+            sed -i 's/-Werror//g' "$f"
           fi
         done
 
-        # 7. Фикс трейсинга дисплея медиатек (mtk_layer_layout_trace.h)
-        if [ -f drivers/gpu/drm/mediatek/mtk_layer_layout_trace.h ]; then
-          echo "Копируем mtk_layer_layout_trace.h в глобальный трейсинг..."
+        echo "Копируем mtk_layer_layout_trace.h в глобальный трейсинг..."
+        LAYER_H=$(find . -name "mtk_layer_layout_trace.h" -print -quit)
+        if [ ! -z "$LAYER_H" ]; then
           mkdir -p include/trace/events
-          cp drivers/gpu/drm/mediatek/mtk_layer_layout_trace.h include/trace/events/
-          cp drivers/gpu/drm/mediatek/mtk_layer_layout_trace.h include/
-          sed -i 's|#define TRACE_INCLUDE_PATH .|#define TRACE_INCLUDE_PATH ../../drivers/gpu/drm/mediatek|g' drivers/gpu/drm/mediatek/mtk_layering_rule_base.c || true
+          cp "$LAYER_H" include/trace/events/
         fi
 
-        # 8. Фикс для подсистемы IOMMU и тачскрина
         echo "Ищем и линкуем разбросанные заголовки IOMMU и Touchscreen..."
-        IOMMU_EXT_H=$(find . -name "mtk_iommu_ext.h" -print -quit)
-        if [ ! -z "$IOMMU_EXT_H" ]; then
-          cp "$IOMMU_EXT_H" include/
+        MTK_IOMMU_H=$(find . -name "mtk_iommu.h" -print -quit)
+        if [ ! -z "$MTK_IOMMU_H" ]; then
+          cp "$MTK_IOMMU_H" include/linux/
         fi
-        TOUCH_H=$(find . -name "touchpanel_prevention.h" -print -quit)
-        if [ ! -z "$TOUCH_H" ]; then
-          cp "$TOUCH_H" include/
-          cp "$TOUCH_H" include/linux/
+        GTP_H=$(find . -name "gt1x.h" -print -quit)
+        if [ ! -z "$GTP_H" ]; then
+          cp "$GTP_H" include/linux/
         fi
 
-        # 9. КОВРОВАЯ БОМБАРДИРОВКА ДЛЯ ADSP и MMC
         echo "Собираем заголовочники из подсистем ADSP и MMC..."
-        find drivers/misc/mediatek/adsp/ -name "*.h" -exec cp {} include/ \; 2>/dev/null || true
-        find drivers/mmc/host/mediatek/ -name "*.h" -exec cp {} include/ \; 2>/dev/null || true
+        find drivers/misc/mediatek/vcodec/ -name "*.h" -exec cp {} include/linux/ \; 2>/dev/null || true
+        find drivers/mmc/host/mediatek/ -name "*.h" -exec cp {} include/linux/ \; 2>/dev/null || true
 
-        # 10. ДОБАВЛЕНО: КОВРОВАЯ БОМБАРДИРОВКА ДЛЯ AUDIO IPI (Фикс audio_ringbuf.h)
         echo "Собираем заголовочники из подсистемы Audio IPI..."
-        find drivers/misc/mediatek/audio_ipi/ -name "*.h" -exec cp {} include/ \; 2>/dev/null || true
+        AUDIO_IPI_H=$(find . -name "audio_ipi.h" -print -quit)
+        if [ ! -z "$AUDIO_IPI_H" ]; then
+          cp "$AUDIO_IPI_H" include/linux/
+        fi
 
-        # 11. ИСПРАВЛЕНО: УМНЫЙ ФИКС ДЛЯ msdc_cust.c (С сохранением оригинальных аргументов)
         MSDC_CUST_FILE="drivers/mmc/host/mediatek/ComboA/mt6781/msdc_cust.c"
         if [ -f "$MSDC_CUST_FILE" ]; then
           echo "Применяем умную очистку тел функций в msdc_cust.c..."
-          
-          # Очищаем тела функций, которые возвращают void, сохраняя их оригинальные аргументы
           sed -i '/void msdc_dump_ldo_sts/,/^}/c\void msdc_dump_ldo_sts(char **buff, unsigned long *size, struct seq_file *m, struct msdc_host *host) { return; }' $MSDC_CUST_FILE
           sed -i '/void msdc_set_pin_mode/,/^}/c\void msdc_set_pin_mode(struct msdc_host *host) { return; }' $MSDC_CUST_FILE
-          sed -i '/void msdc_set_ies_by_id/,/^}/c\void msdc_set_ies_by_id(u32 id, int set_ies) { return; }' $MSDC_CUST_FILE
-          sed -i '/void msdc_set_smt_by_id/,/^}/c\void msdc_set_smt_by_id(u32 id, int set_smt) { return; }' $MSDC_CUST_FILE
-          sed -i '/void msdc_set_tdsel_by_id/,/^}/c\void msdc_set_tdsel_by_id(u32 id, u32 flag, u32 value) { return; }' $MSDC_CUST_FILE
-          sed -i '/void msdc_set_rdsel_by_id/,/^}/c\void msdc_set_rdsel_by_id(u32 id, u32 flag, u32 value) { return; }' $MSDC_CUST_FILE
-          sed -i '/void msdc_set_driving_by_id/,/^}/c\void msdc_set_driving_by_id(struct msdc_host *host, struct msdc_hw *hw) { return; }' $MSDC_CUST_FILE
-          
-          # Очищаем функции, возвращающие int (в логах они тоже сыпали ошибками)
-          sed -i '/int msdc_dump_padctl_by_id/,/^}/c\int msdc_dump_padctl_by_id(int id, char *buf, int size) { return 0; }' $MSDC_CUST_FILE
-          sed -i '/int msdc_get_tdsel_by_id/,/^}/c\int msdc_get_tdsel_by_id(u32 id, u32 flag) { return 0; }' $MSDC_CUST_FILE
-          sed -i '/int msdc_get_rdsel_by_id/,/^}/c\int msdc_get_rdsel_by_id(u32 id, u32 flag) { return 0; }' $MSDC_CUST_FILE
-          
-          # На всякий случай глушим оставшиеся мелкие функции настройки драйверов, если они есть
-          sed -i '/void msdc_set_drv_by_id/,/^}/c\void msdc_set_drv_by_id(short id, int val) { return; }' $MSDC_CUST_FILE
-        fiv
-
-        # 12. Фиксим dt_idle_states.h для cpuidle
-        echo "Фиксим dt_idle_states.h для cpuidle..."
-        IDLE_H_PATH=$(find . -name "dt_idle_states.h" -print -quit)
-        if [ ! -z "$IDLE_H_PATH" ]; then
-          cp "$IDLE_H_PATH" include/
-          cp "$IDLE_H_PATH" include/linux/
-        else
-          echo '#include <linux/cpuidle.h>' > include/dt_idle_states.h
-          echo '#include <linux/cpuidle.h>' > include/linux/dt_idle_states.h
-        fi
-
-        # 13. Фиксы инлайнов для криптографии (ksm_flock и blk_crypto_flock)
-        if [ -f include/linux/keyslot-manager.h ]; then
-          echo "Убираем inline у функции ksm_flock..."
-          sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
-        fi
-        if [ -f include/linux/blk-crypto.h ]; then
-          echo "Убираем inline у функции blk_crypto_flock..."
-          sed -i 's/inline void blk_crypto_flock/void blk_crypto_flock/g' include/linux/blk-crypto.h
-        fi
-        
-        # 14. Вытаскиваем имя дефконфига
-        KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
-        echo "Используем конфиг: $KERNEL_DEFCONFIG"
-        
-        # 15. Генерируем базовый .config
-        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
-        
-        # 16. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
-        if [ -f .config ]; then
-          echo "Модифицируем .config..."
-          sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
-          sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' .config
-          sed -i 's/CONFIG_CC_STACKPROTECTOR_AUTO=y/# CONFIG_CC_STACKPROTECTOR_AUTO is not set/g' .config
-          echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
-        fi
-        
-        # 17. Компиляция ядра
-        make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang HOSTCFLAGS="-w" HOSTCXXFLAGS="-w" Image.gz-dtb
-        
-        # 18. Упаковка в .deb
-        if [ -f arch/arm64/boot/Image.gz-dtb ]; then
-          echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
-          mkdir -p deb-package/boot
-          mkdir -p deb-package/DEBIAN
-          cp arch/arm64/boot/Image.gz-dtb deb-package/boot/vmlinuz-oplus6781
-          
-          cat << 'EOF' > deb-package/DEBIAN/control
-          Package: linux-image-droidian-oplus6781
-          Version: 4.14.186-custom
-          Architecture: arm64
-          Maintainer: romka <nogioget@example.com>
-          Description: Compiled Droidian Kernel for Realme 8i (oplus6781)
-          EOF
-          
-          dpkg-deb --build deb-package ../linux-image-droidian-oplus6781.deb
-        else
-          echo "Ошибка: Файл ядра Image.gz-dtb не найден!"
-          exit 1
-        fi
-        
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: Droidian-Kernel-Packages
-        path: ../*.deb
+          sed -i '/void msdc_set_ies_by_id/,/^}/c\void msdc_set_ies_
