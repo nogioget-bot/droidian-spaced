@@ -14,13 +14,6 @@ jobs:
     - name: Checkout kernel sources
       uses: actions/checkout@v4
 
-    - name: Set up Build Environment
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential debhelper devscripts equivs git \
-          gcc-aarch64-linux-gnu bc bison flex libelf-dev libssl-dev libkmod-dev \
-          kmod rsync u-boot-tools clang libncurses-dev
-
     - name: Build Droidian Kernel Package
       env:
         DEB_BUILD_OPTIONS: nocheck
@@ -32,14 +25,17 @@ jobs:
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 2. Отключаем жесткий режим Werror в главном Makefile
+        # 2. Полная очистка перед сборкой
+        make mrproper
+        
+        # 3. Отключаем жесткий режим Werror в главном Makefile
         if [ -f Makefile ]; then
           echo "Отключаем жесткий режим Werror..."
           sed -i 's/-Werror//g' Makefile
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
         fi
         
-        # 3. Фиксим пути трейсинга uifirst
+        # 4. Фиксим пути трейсинга uifirst
         if [ -f kernel/uifirst/uifirst_sched_trace.h ]; then
           echo "Создаем симлинк для uifirst_sched_trace.h..."
           mkdir -p include/trace/events
@@ -47,30 +43,34 @@ jobs:
           ln -sf uifirst/uifirst_sched_trace.h kernel/uifirst_sched_trace.h
         fi
         
-        # 4. ИСПРАВЛЯЕМ ОПЕЧАТКУ С ФЛАГОМ -implicit-function-declaration -> -Wimplicit-function-declaration
-        echo "Исправляем кривой флаг компилятора во всех Makefile..."
-        find . -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) -exec sed -i 's/-implicit-function-declaration/-Wimplicit-function-declaration/g' {} +
+        # 5. Аккуратный фикс кривого флага только в основных файлах конфигурации компилятора
+        echo "Фиксим флаг декларации функций..."
+        for file in Makefile arch/arm64/Makefile; do
+          if [ -f "$file" ]; then
+            sed -i 's/-implicit-function-declaration/-Wimplicit-function-declaration/g' "$file"
+          fi
+        done
         
-        # 5. Вытаскиваем имя дефконфига
+        # 6. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 6. Генерируем базовый .config
+        # 7. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
-        # 7. Отключаем STACKPROTECTOR и WERROR в .config
+        # 8. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
         if [ -f .config ]; then
-          echo "Вырезаем защиту стека и werror из .config..."
+          echo "Модифицируем .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
           sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' .config
           sed -i 's/CONFIG_CC_STACKPROTECTOR_AUTO=y/# CONFIG_CC_STACKPROTECTOR_AUTO is not set/g' .config
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 8. Компиляция ядра
+        # 9. Компиляция ядра
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
         
-        # 9. Упаковка в .deb
+        # 10. Упаковка в .deb
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           mkdir -p deb-package/boot
