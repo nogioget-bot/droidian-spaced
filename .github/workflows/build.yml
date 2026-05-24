@@ -19,20 +19,22 @@ jobs:
         DEB_BUILD_OPTIONS: nocheck
         DH_VERBOSE: 1
       run: |
-        # 1. Создаем пути для компилятора
+        # 1. Устанавливаем недостающий кросс-линкер (ld) и инструменты
+        sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
+        
+        # 2. Создаем пути для компилятора
         sudo mkdir -p /usr/lib/llvm-android-10.0-r370808/bin
         sudo ln -sf $(which clang) /usr/lib/llvm-android-10.0-r370808/bin/clang
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 2. Полная очистка перед сборкой
-        make mrproper
-        
-        # 3. Отключаем жесткий режим Werror в главном Makefile
+        # 3. ПОЛНОСТЬЮ ОТКЛЮЧАЕМ ВСЕ ВАРНИНГИ И РЕЖИМ WERROR
         if [ -f Makefile ]; then
-          echo "Отключаем жесткий режим Werror..."
+          echo "Глушим все предупреждения (warnings) в Makefile..."
           sed -i 's/-Werror//g' Makefile
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
+          # Добавляем флаг -w, чтобы скрыть предупреждения
+          sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
         fi
         
         # 4. Фиксим пути трейсинга uifirst
@@ -43,7 +45,7 @@ jobs:
           ln -sf uifirst/uifirst_sched_trace.h kernel/uifirst_sched_trace.h
         fi
         
-        # 5. Аккуратный фикс кривого флага только в основных файлах конфигурации компилятора
+        # 5. Аккуратный фикс кривого флага декларации функций
         echo "Фиксим флаг декларации функций..."
         for file in Makefile arch/arm64/Makefile; do
           if [ -f "$file" ]; then
@@ -67,7 +69,7 @@ jobs:
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 9. Компиляция ядра
+        # 9. Компиляция ядра (теперь в консоли будут только строки CC и реальные ошибки)
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
         
         # 10. Упаковка в .deb
