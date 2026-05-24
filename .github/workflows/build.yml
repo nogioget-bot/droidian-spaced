@@ -35,9 +35,9 @@ jobs:
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
           sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
           
-          # ХИТРЫЙ ХАК: Расширяем пути инклудов (добавили папку DRM Mediatek)
-          echo "Добавляем скрытые папки MediaTek в глобальный поиск инклудов..."
-          sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp -I$(srctree)/drivers/gpu/drm/mediatek |g' Makefile
+          # ХИТРЫЙ ХАК: Расширяем пути инклудов (добавили папки IOMMU, Touchscreen и подпапки медиатека)
+          echo "Добавляем скрытые папки MediaTek и Oppo в глобальный поиск инклудов..."
+          sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp -I$(srctree)/drivers/gpu/drm/mediatek -I$(srctree)/drivers/iommu -I$(srctree)/drivers/input/touchscreen/oplus_touchscreen |g' Makefile
         fi
         
         # 4. Фиксим пути трейсинга uifirst
@@ -63,17 +63,28 @@ jobs:
           fi
         done
 
-        # 7. ФИКС ТРЕЙСИНГА ДИСПЛЕЯ МЕДИАТЕК (mtk_layer_layout_trace.h)
+        # 7. Фикс трейсинга дисплея медиатек (mtk_layer_layout_trace.h)
         if [ -f drivers/gpu/drm/mediatek/mtk_layer_layout_trace.h ]; then
           echo "Копируем mtk_layer_layout_trace.h в глобальный трейсинг..."
           mkdir -p include/trace/events
           cp drivers/gpu/drm/mediatek/mtk_layer_layout_trace.h include/trace/events/
           cp drivers/gpu/drm/mediatek/mtk_layer_layout_trace.h include/
-          # На случай, если макрос запутается в относительных путях внутри файла c:
           sed -i 's|#define TRACE_INCLUDE_PATH .|#define TRACE_INCLUDE_PATH ../../drivers/gpu/drm/mediatek|g' drivers/gpu/drm/mediatek/mtk_layering_rule_base.c || true
         fi
 
-        # 8. Фиксим dt_idle_states.h для cpuidle
+        # 8. ФИКС ДЛЯ ПОД СИСТЕМЫ IOMMU И ТАЧСКРИНА (Автопоиск mtk_iommu_ext.h и touchpanel_prevention.h)
+        echo "Ищем и линкуем разбросанные заголовки IOMMU и Touchscreen..."
+        IOMMU_EXT_H=$(find . -name "mtk_iommu_ext.h" -print -quit)
+        if [ ! -z "$IOMMU_EXT_H" ]; then
+          cp "$IOMMU_EXT_H" include/
+        fi
+        TOUCH_H=$(find . -name "touchpanel_prevention.h" -print -quit)
+        if [ ! -z "$TOUCH_H" ]; then
+          cp "$TOUCH_H" include/
+          cp "$TOUCH_H" include/linux/
+        fi
+
+        # 9. Фиксим dt_idle_states.h для cpuidle
         echo "Фиксим dt_idle_states.h для cpuidle..."
         IDLE_H_PATH=$(find . -name "dt_idle_states.h" -print -quit)
         if [ ! -z "$IDLE_H_PATH" ]; then
@@ -84,20 +95,20 @@ jobs:
           echo '#include <linux/cpuidle.h>' > include/linux/dt_idle_states.h
         fi
 
-        # 9. Фиксим ошибку inlining failed для ksm_flock
+        # 10. Фиксим ошибку inlining failed для ksm_flock
         if [ -f include/linux/keyslot-manager.h ]; then
           echo "Убираем inline у функции ksm_flock..."
           sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
         fi
         
-        # 10. Вытаскиваем имя дефконфига
+        # 11. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 11. Генерируем базовый .config
+        # 12. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
-        # 12. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
+        # 13. Отключаем STACKPROTECTOR and WERROR в сгенерированном .config
         if [ -f .config ]; then
           echo "Модифицируем .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
@@ -106,10 +117,10 @@ jobs:
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 13. Компиляция ядра
+        # 14. Компиляция ядра
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang HOSTCFLAGS="-w" HOSTCXXFLAGS="-w" Image.gz-dtb
         
-        # 14. Упаковка в .deb
+        # 15. Упаковка в .deb
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           mkdir -p deb-package/boot
