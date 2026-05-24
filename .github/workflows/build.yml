@@ -19,27 +19,45 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential debhelper devscripts equivs git \
           gcc-aarch64-linux-gnu bc bison flex libelf-dev libssl-dev libkmod-dev \
-          kmod rsync u-boot-tools clang
-          
-        # Скачиваем те самые общие шаблоны (snippets), без которых дебиановский rules отказывается работать
-        sudo git clone https://github.com/droidian-releng/linux-packaging-snippets /usr/share/linux-packaging-snippets
+          kmod rsync u-boot-tools clang libncurses-dev
 
     - name: Build Droidian Kernel Package
       env:
         DEB_BUILD_OPTIONS: nocheck
         DH_VERBOSE: 1
       run: |
-        # 1. Создаем структуру папок, которую требует твой kernel-info.mk
+        # 1. Создаем пути для компилятора, которые прописаны в kernel-info.mk
         sudo mkdir -p /usr/lib/llvm-android-10.0-r370808/bin
-        
-        # 2. Подсовываем системный clang и инструменты туда, где их ждет мейкфайл ядра
         sudo ln -sf $(which clang) /usr/lib/llvm-android-10.0-r370808/bin/clang
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 3. Запускаем сборку. Теперь rules найдет свой kernel-snippet.mk!
+        # 2. Вытаскиваем дефолтный конфиг из твоего kernel-info.mk (например, oplus6781_defconfig)
+        # И перезаписываем debian/rules на чистый Makefile сборки ядра
+        KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
+        
+        cat << 'EOF' > debian/rules
+        #!/usr/bin/make -f
+        
+        %:
+        	dh $@
+        
+        override_dh_auto_configure:
+        	make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $(KERNEL_DEFCONFIG)
+        
+        override_dh_auto_build:
+        	make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb modules
+        
+        override_dh_auto_install:
+        	mkdir -p debian/linux-image-droidian-arm64/boot
+        	cp arch/arm64/boot/Image.gz-dtb debian/linux-image-droidian-arm64/boot/vmlinuz-droidian
+        EOF
+        
+        chmod +x debian/rules
+        
+        # 3. Запускаем сборку!
         dpkg-buildpackage -b -d -uc -us
-
+        
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
