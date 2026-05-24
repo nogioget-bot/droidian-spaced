@@ -26,37 +26,45 @@ jobs:
         DEB_BUILD_OPTIONS: nocheck
         DH_VERBOSE: 1
       run: |
-        # 1. Создаем пути для компилятора, которые прописаны в kernel-info.mk
+        # 1. Создаем пути для компилятора
         sudo mkdir -p /usr/lib/llvm-android-10.0-r370808/bin
         sudo ln -sf $(which clang) /usr/lib/llvm-android-10.0-r370808/bin/clang
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 2. Вытаскиваем дефолтный конфиг из твоего kernel-info.mk (например, oplus6781_defconfig)
-        # И перезаписываем debian/rules на чистый Makefile сборки ядра
+        # 2. Вытаскиваем имя дефконфига из твоего kernel-info.mk
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
+        echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        cat << 'EOF' > debian/rules
-        #!/usr/bin/make -f
+        # 3. Чистая компиляция ядра без капризных дебиановских оберток
+        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
+        make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
         
-        %:
-        	dh $@
-        
-        override_dh_auto_configure:
-        	make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $(KERNEL_DEFCONFIG)
-        
-        override_dh_auto_build:
-        	make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb modules
-        
-        override_dh_auto_install:
-        	mkdir -p debian/linux-image-droidian-arm64/boot
-        	cp arch/arm64/boot/Image.gz-dtb debian/linux-image-droidian-arm64/boot/vmlinuz-droidian
-        EOF
-        
-        chmod +x debian/rules
-        
-        # 3. Запускаем сборку!
-        dpkg-buildpackage -b -d -uc -us
+        # 4. Проверяем, что ядро собралось, и упаковываем его вручную в .deb пакет
+        if [ -f arch/arm64/boot/Image.gz-dtb ]; then
+          echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
+          
+          mkdir -p deb-package/boot
+          mkdir -p deb-package/DEBIAN
+          
+          # Копируем само ядро
+          cp arch/arm64/boot/Image.gz-dtb deb-package/boot/vmlinuz-oplus6781
+          
+          # Генерируем правильный файл описания пакета (control)
+          cat << 'EOF' > deb-package/DEBIAN/control
+          Package: linux-image-droidian-oplus6781
+          Version: 4.14.186-custom
+          Architecture: arm64
+          Maintainer: romka <nogioget@example.com>
+          Description: Compiled Droidian Kernel for Realme 8i (oplus6781)
+          EOF
+          
+          # Собираем готовый .deb пакет на один уровень выше, чтобы шаг артефактов его забрал
+          dpkg-deb --build deb-package ../linux-image-droidian-oplus6781.deb
+        else
+          echo "Ошибка: Файл ядра Image.gz-dtb не найден!"
+          exit 1
+        fi
         
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
