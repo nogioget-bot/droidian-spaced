@@ -39,23 +39,26 @@ jobs:
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
         fi
         
-        # 3. Фиксим пути трейсинга uifirst (создаем симлинк, чтобы заголовочник был доступен глобально)
+        # 3. Фиксим пути трейсинга uifirst
         if [ -f kernel/uifirst/uifirst_sched_trace.h ]; then
           echo "Создаем симлинк для uifirst_sched_trace.h..."
           mkdir -p include/trace/events
           ln -sf ../../../kernel/uifirst/uifirst_sched_trace.h include/trace/events/uifirst_sched_trace.h
-          # На всякий случай делаем копию/линк в саму папку kernel/, иногда подсистема ищет там
           ln -sf uifirst/uifirst_sched_trace.h kernel/uifirst_sched_trace.h
         fi
         
-        # 4. Вытаскиваем имя дефконфига
+        # 4. ИСПРАВЛЯЕМ ОПЕЧАТКУ С ФЛАГОМ -implicit-function-declaration -> -Wimplicit-function-declaration
+        echo "Исправляем кривой флаг компилятора во всех Makefile..."
+        find . -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) -exec sed -i 's/-implicit-function-declaration/-Wimplicit-function-declaration/g' {} +
+        
+        # 5. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 5. Генерируем базовый .config
+        # 6. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
-        # 6. Отключаем STACKPROTECTOR и WERROR в .config
+        # 7. Отключаем STACKPROTECTOR и WERROR в .config
         if [ -f .config ]; then
           echo "Вырезаем защиту стека и werror из .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
@@ -64,10 +67,10 @@ jobs:
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 7. Компиляция ядра
+        # 8. Компиляция ядра
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
         
-        # 8. Упаковка в .deb
+        # 9. Упаковка в .deb
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           mkdir -p deb-package/boot
