@@ -1,0 +1,25 @@
+Format: 1.8
+Date: Sun, 24 May 2026 07:06:54 +0000
+Source: linux-android-oplus6781-build-deps
+Binary: linux-android-oplus6781-build-deps
+Architecture: all
+Version: 0.0.0+git20260524063750.8f95c24.droidian
+Distribution: unstable
+Urgency: low
+Maintainer: Equivs Dummy Package Generator <root@8b3c2fecfc55>
+Changed-By: Equivs Dummy Package Generator <root@8b3c2fecfc55>
+Description:
+ linux-android-oplus6781-build-deps - build-dependencies for linux-android-oplus6781
+Changes:
+ linux-android-oplus6781-build-deps (0.0.0+git20260524063750.8f95c24.droidian) unstable; urgency=low
+ .
+   * First version
+Checksums-Sha1:
+ e8735b26b8e7d0ee993574b38c8a145ca7fc2b2b 2288 linux-android-oplus6781-build-deps_0.0.0+git20260524063750.8f95c24.droidian_all.deb
+ 975a15867804ddc9c7d6e959956bbf5e05cee747 5026 linux-android-oplus6781-build-deps_0.0.0+git20260524063750.8f95c24.droidian_amd64.buildinfo
+Checksums-Sha256:
+ 1efd358e91410dd0c6aa292679e739fcdc09ed4e26bac1c911b2c0a5c9b781d6 2288 linux-android-oplus6781-build-deps_0.0.0+git20260524063750.8f95c24.droidian_all.deb
+ 87dc158b417678b8228e6cb79102dc5e8be27bf9c3e31c164ff16658d3476127 5026 linux-android-oplus6781-build-deps_0.0.0+git20260524063750.8f95c24.droidian_amd64.buildinfo
+Files:
+ 43c85ea6d32bed3b409e812342f35018 2288 devel optional linux-android-oplus6781-build-deps_0.0.0+git20260524063750.8f95c24.droidian_all.deb
+ 8e113996790c36623b0c28811d2fc412 5026 devel optional linux-android-oplus6781-build-deps_0.0.0+git20260524063750.8f95c24.droidian_amd64.buildinfo
