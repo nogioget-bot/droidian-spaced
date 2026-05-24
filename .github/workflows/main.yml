@@ -26,18 +26,15 @@ jobs:
         DEB_BUILD_OPTIONS: nocheck
         DH_VERBOSE: 1
       run: |
-        # 1. Обманываем сборщик версией Clang
-        sudo ln -s $(which clang) /usr/bin/clang-10
+        # 1. Создаем структуру папок, которую требует твой kernel-info.mk
+        sudo mkdir -p /usr/lib/llvm-android-10.0-r370808/bin
         
-        # 2. Принудительно подключаем наш kernel-info.mk в переменные окружения,
-        # чтобы компилятор сразу узнал все настройки ядра и архитектуру
-        if [ -f debian/kernel-info.mk ]; then
-          echo "Подключаем настройки из kernel-info.mk..."
-          export $(grep -v '^#' debian/kernel-info.mk | xargs)
-        fi
+        # 2. Подсовываем системный clang и инструменты туда, где их ждет мейкфайл ядра
+        sudo ln -sf $(which clang) /usr/lib/llvm-android-10.0-r370808/bin/clang
+        sudo ln -sf $(which clang) /usr/bin/clang-10
+        sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 3. Запускаем прямую сборку пакета.
-        # -b (только бинарники), -d (пропустить проверку зависимостей, мы их уже поставили)
+        # 3. Просто запускаем сборку. dpkg-buildpackage сам прочитает debian/kernel-info.mk!
         dpkg-buildpackage -b -d -uc -us
         
     - name: Upload Build Artifacts
