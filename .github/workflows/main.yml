@@ -26,9 +26,8 @@ jobs:
         RELENG_HOST_ARCH: arm64
       run: |
         git clone https://github.com/droidian-releng/droidian-build-tools /tmp/releng-tools
-        chmod +x /tmp/releng-tools/releng-*
         sudo ln -s $(which clang) /usr/bin/clang-10
-        /tmp/releng-tools/releng-build-package --no-build-deps
+        /tmp/releng-tools/bin/droidian-build-package --no-build-deps
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
