@@ -32,28 +32,42 @@ jobs:
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 2. ОТКЛЮЧАЕМ РЕЖИМ "WARNING AS ERROR" (Werror) в Makefile
+        # 2. Отключаем жесткий режим Werror в главном Makefile
         if [ -f Makefile ]; then
           echo "Отключаем жесткий режим Werror..."
-          # Вырезаем флаг -Werror, чтобы предупреждения не стопили сборку
           sed -i 's/-Werror//g' Makefile
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
         fi
         
-        # 3. Вытаскиваем имя дефконфига
+        # 3. Фиксим пути трейсинга uifirst (создаем симлинк, чтобы заголовочник был доступен глобально)
+        if [ -f kernel/uifirst/uifirst_sched_trace.h ]; then
+          echo "Создаем симлинк для uifirst_sched_trace.h..."
+          mkdir -p include/trace/events
+          ln -sf ../../../kernel/uifirst/uifirst_sched_trace.h include/trace/events/uifirst_sched_trace.h
+          # На всякий случай делаем копию/линк в саму папку kernel/, иногда подсистема ищет там
+          ln -sf uifirst/uifirst_sched_trace.h kernel/uifirst_sched_trace.h
+        fi
+        
+        # 4. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 4. Генерируем .config и на всякий случай отключаем WERROR там
+        # 5. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
+        
+        # 6. Отключаем STACKPROTECTOR и WERROR в .config
         if [ -f .config ]; then
+          echo "Вырезаем защиту стека и werror из .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
+          sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' .config
+          sed -i 's/CONFIG_CC_STACKPROTECTOR_AUTO=y/# CONFIG_CC_STACKPROTECTOR_AUTO is not set/g' .config
+          echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 5. Компиляция ядра (теперь варнинги будут просто предупреждениями)
+        # 7. Компиляция ядра
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
         
-        # 6. Упаковка в .deb
+        # 8. Упаковка в .deb
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           mkdir -p deb-package/boot
