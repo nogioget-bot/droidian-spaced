@@ -21,6 +21,14 @@ jobs:
           gcc-aarch64-linux-gnu bc bison flex libelf-dev libssl-dev libkmod-dev \
           kmod rsync u-boot-tools clang libncurses-dev
 
+    Да, конечно! Вместо того чтобы вылавливать каждый варнинг поодиночке, можно сделать гораздо проще и правильнее: запретить компилятору превращать предупреждения (warnings) в критические ошибки (errors).
+
+В ядре Linux за это отвечает флаг -Werror в главном Makefile. Если мы его уберем, то компилятор будет просто сыпать варнингами в лог (как ты и хочешь), но сборку останавливать не станет. Она упадет только в том случае, если случится настоящая фатальная ошибка кода (например, синтаксический слом, пропущенная скобка или реальный баг).
+
+🛠 Как это сделать в build.yml
+Замени свой шаг сборки на этот вариант. Здесь мы с помощью sed находим строки CONFIG_WERROR и флаги -Werror в Makefile и отключаем их:
+
+YAML
     - name: Build Droidian Kernel Package
       env:
         DEB_BUILD_OPTIONS: nocheck
@@ -32,25 +40,25 @@ jobs:
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 2. Фиксим баг Oplus с прототипом функции в nandswap.h
-        if [ -f drivers/soc/oplus/oplus_nandswap/nandswap.h ]; then
-          echo "Фиксим nandswap.h..."
-          sed -i 's/static inline bool current_is_nswapoutd()/static inline bool current_is_nswapoutd(void)/g' drivers/soc/oplus/oplus_nandswap/nandswap.h
-        fi
-        
-        # 3. Отключаем предупреждение array-compare, из-за которого падает mm/page_alloc.c
+        # 2. ОТКЛЮЧАЕМ РЕЖИМ "WARNING AS ERROR" (Werror) в Makefile
         if [ -f Makefile ]; then
-          echo "Отключаем -Warray-compare в Makefile..."
-          sed -i 's/KBUILD_CFLAGS   += $(call cc-disable-warning, pointer-to-enum-cast)/KBUILD_CFLAGS   += $(call cc-disable-warning, pointer-to-enum-cast) -Wno-array-compare/g' Makefile
-          sed -i 's/KBUILD_CFLAGS += $(call cc-disable-warning, pointer-to-enum-cast)/KBUILD_CFLAGS += $(call cc-disable-warning, pointer-to-enum-cast) -Wno-array-compare/g' Makefile
+          echo "Отключаем жесткий режим Werror..."
+          # Вырезаем флаг -Werror, чтобы предупреждения не стопили сборку
+          sed -i 's/-Werror//g' Makefile
+          sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
         fi
         
-        # 4. Вытаскиваем имя дефконфига
+        # 3. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 5. Чистая компиляция ядра
+        # 4. Генерируем .config и на всякий случай отключаем WERROR там
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
+        if [ -f .config ]; then
+          sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
+        fi
+        
+        # 5. Компиляция ядра (теперь варнинги будут просто предупреждениями)
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
         
         # 6. Упаковка в .deb
