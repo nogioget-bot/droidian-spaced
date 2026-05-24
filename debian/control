@@ -1,0 +1,15 @@
+Source: linux-android-oplus6781
+Section: kernel
+Priority: optional
+Maintainer: Droidian Porter <porting@droidian.org>
+Build-Depends: debhelper-compat (= 13), bc, bison, flex, libelf-dev, libssl-dev, libkmod-dev, kmod, rsync, u-boot-tools
+
+Package: linux-image-oplus6781
+Architecture: arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Linux kernel image for Realme/Oplus Helio G96
+
+Package: linux-headers-oplus6781
+Architecture: arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Linux kernel headers for Realme/Oplus Helio G96
