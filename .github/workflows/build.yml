@@ -32,15 +32,21 @@ jobs:
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 2. Вытаскиваем имя дефконфига из твоего kernel-info.mk
+        # 2. Фиксим баг Oplus с прототипом функции в nandswap.h (добавляем void)
+        if [ -f drivers/soc/oplus/oplus_nandswap/nandswap.h ]; then
+          echo "Фиксим nandswap.h..."
+          sed -i 's/static inline bool current_is_nswapoutd()/static inline bool current_is_nswapoutd(void)/g' drivers/soc/oplus/oplus_nandswap/nandswap.h
+        fi
+        
+        # 3. Вытаскиваем имя дефконфига из твоего kernel-info.mk
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 3. Чистая компиляция ядра без капризных дебиановских оберток
+        # 4. Чистая компиляция ядра
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
         
-        # 4. Проверяем, что ядро собралось, и упаковываем его вручную в .deb пакет
+        # 5. Проверяем, что ядро собралось, и упаковываем его вручную в .deb пакет
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           
@@ -59,7 +65,7 @@ jobs:
           Description: Compiled Droidian Kernel for Realme 8i (oplus6781)
           EOF
           
-          # Собираем готовый .deb пакет на один уровень выше, чтобы шаг артефактов его забрал
+          # Собираем готовый .deb пакет на один уровень выше
           dpkg-deb --build deb-package ../linux-image-droidian-oplus6781.deb
         else
           echo "Ошибка: Файл ядра Image.gz-dtb не найден!"
