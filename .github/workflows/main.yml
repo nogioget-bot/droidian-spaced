@@ -23,17 +23,23 @@ jobs:
 
     - name: Build Droidian Kernel Package
       env:
-        RELENG_HOST_ARCH: arm64
+        DEB_BUILD_OPTIONS: nocheck
+        DH_VERBOSE: 1
       run: |
-        # 1. Клонируем инструменты сборки
-        git clone https://github.com/droidian-releng/droidian-build-tools /tmp/releng-tools
-        
-        # 2. Обманываем сборщик версией Clang
+        # 1. Обманываем сборщик версией Clang
         sudo ln -s $(which clang) /usr/bin/clang-10
         
-        # 3. Запускаем чистую сборку. Настоящая папка debian/ со всеми .mk файлами уже на месте!
-        /tmp/releng-tools/bin/droidian-build-package -b arm64
-
+        # 2. Принудительно подключаем наш kernel-info.mk в переменные окружения,
+        # чтобы компилятор сразу узнал все настройки ядра и архитектуру
+        if [ -f debian/kernel-info.mk ]; then
+          echo "Подключаем настройки из kernel-info.mk..."
+          export $(grep -v '^#' debian/kernel-info.mk | xargs)
+        fi
+        
+        # 3. Запускаем прямую сборку пакета.
+        # -b (только бинарники), -d (пропустить проверку зависимостей, мы их уже поставили)
+        dpkg-buildpackage -b -d -uc -us
+        
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
