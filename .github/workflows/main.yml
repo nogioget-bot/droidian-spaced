@@ -27,8 +27,10 @@ jobs:
       run: |
         git clone https://github.com/droidian-releng/droidian-build-tools /tmp/releng-tools
         sudo ln -s $(which clang) /usr/bin/clang-10
-        /tmp/releng-tools/bin/droidian-build-package --no-build-deps
-
+        
+        # Запускаем сборку с новыми флагами: -b для архитектуры и -d для игнорирования дегенеративных зависимостей
+        /tmp/releng-tools/bin/droidian-build-package -b arm64 -d
+        
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
