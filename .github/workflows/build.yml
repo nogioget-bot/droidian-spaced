@@ -36,15 +36,23 @@ jobs:
           sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
         fi
         
-        # 4. Фиксим пути трейсинга uifirst
+        # 4. ФИКС ТРЕЙСИНГА UIFIRST (Более жесткий метод путей)
         if [ -f kernel/uifirst/uifirst_sched_trace.h ]; then
-          echo "Создаем симлинк для uifirst_sched_trace.h..."
+          echo "Фиксим пути для uifirst_sched_trace.h..."
           mkdir -p include/trace/events
-          ln -sf ../../../kernel/uifirst/uifirst_sched_trace.h include/trace/events/uifirst_sched_trace.h
-          ln -sf uifirst/uifirst_sched_trace.h kernel/uifirst_sched_trace.h
+          cp kernel/uifirst/uifirst_sched_trace.h include/trace/events/uifirst_sched_trace.h
+          cp kernel/uifirst/uifirst_sched_trace.h include/uifirst_sched_trace.h
+          # Перенаправляем макрос сборщика, если он путает пути
+          sed -i 's|#define TRACE_INCLUDE_PATH .|#define TRACE_INCLUDE_PATH ../../kernel/uifirst|g' kernel/uifirst/uifirst_sched_futex.c || true
         fi
-        
-        # 5. Аккуратный фикс кривого флага декларации функций
+
+        # 5. ФИКС ОШИБКИ ИНЛИНГА В oplus_wakelock_profiler_mtk.c
+        if [ -f drivers/base/power/owakelock/oplus_wakelock_profiler_mtk.c ]; then
+          echo "Убираем ломающий extern inline у ws_all_release..."
+          sed -i 's/extern inline bool ws_all_release/bool ws_all_release/g' drivers/base/power/owakelock/oplus_wakelock_profiler_mtk.c
+        fi
+
+        # 6. Аккуратный фикс кривого флага декларации функций
         echo "Фиксим флаг декларации функций..."
         for file in Makefile arch/arm64/Makefile; do
           if [ -f "$file" ]; then
@@ -52,20 +60,27 @@ jobs:
           fi
         done
 
-        # 6. ФИКС ОШИБКИ INLINING FAILED ДЛЯ ksm_flock
+        # 7. ФИКС ПОТЕРЯННОГО ЗАСЛЕНЦА mtk-dsp-mem-control.h
+        echo "Ищем и линкуем mtk-dsp-mem-control.h в глобальные инклуды..."
+        DSP_H_PATH=$(find . -name "mtk-dsp-mem-control.h" -print -quit)
+        if [ ! -z "$DSP_H_PATH" ]; then
+          cp "$DSP_H_PATH" include/
+        fi
+
+        # 8. ФИКС ОШИБКИ INLINING FAILED ДЛЯ ksm_flock
         if [ -f include/linux/keyslot-manager.h ]; then
           echo "Убираем inline у функции ksm_flock..."
           sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
         fi
         
-        # 7. Вытаскиваем имя дефконфига
+        # 9. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 8. Генерируем базовый .config
+        # 10. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
-        # 9. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
+        # 11. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
         if [ -f .config ]; then
           echo "Модифицируем .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
@@ -74,10 +89,10 @@ jobs:
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 10. Компиляция ядра (с глушением утилит хоста)
+        # 12. Компиляция ядра
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang HOSTCFLAGS="-w" HOSTCXXFLAGS="-w" Image.gz-dtb
         
-        # 11. Упаковка в .deb
+        # 13. Упаковка в .deb
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           mkdir -p deb-package/boot
