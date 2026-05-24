@@ -31,8 +31,7 @@ jobs:
         # 2. Обманываем сборщик версией Clang
         sudo ln -s $(which clang) /usr/bin/clang-10
         
-        # 3. Запускаем чистую сборку. Так как папка debian/ теперь на месте, 
-        # скрипт сам подхватит и твой kernel-info.mk, и инфу об адаптации!
+        # 3. Запускаем чистую сборку. Настоящая папка debian/ со всеми .mk файлами уже на месте!
         /tmp/releng-tools/bin/droidian-build-package -b arm64
 
     - name: Upload Build Artifacts
