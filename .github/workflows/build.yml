@@ -35,9 +35,9 @@ jobs:
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
           sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
           
-          # ХИТРЫЙ ХАК: Расширяем пути инклудов
+          # ХИТРЫЙ ХАК: Добавляем папки ADSP MediaTek в глобальный поиск инклудов
           echo "Добавляем скрытые папки MediaTek и Oppo в глобальный поиск инклудов..."
-          sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp -I$(srctree)/drivers/gpu/drm/mediatek -I$(srctree)/drivers/iommu -I$(srctree)/drivers/input/touchscreen/oplus_touchscreen |g' Makefile
+          sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp -I$(srctree)/drivers/gpu/drm/mediatek -I$(srctree)/drivers/iommu -I$(srctree)/drivers/input/touchscreen/oplus_touchscreen -I$(srctree)/drivers/misc/mediatek/adsp/common -I$(srctree)/drivers/misc/mediatek/adsp |g' Makefile
         fi
         
         # 4. Фиксим пути трейсинга uifirst
@@ -95,7 +95,7 @@ jobs:
           echo '#include <linux/cpuidle.h>' > include/linux/dt_idle_states.h
         fi
 
-        # 10. ФИКСЫ ИНЛАЙНОВ ДЛЯ КРИПТОГРАФИИ (ksm_flock и blk_crypto_flock)
+        # 10. Фиксы инлайнов для криптографии (ksm_flock и blk_crypto_flock)
         if [ -f include/linux/keyslot-manager.h ]; then
           echo "Убираем inline у функции ksm_flock..."
           sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
