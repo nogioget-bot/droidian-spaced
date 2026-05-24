@@ -35,7 +35,7 @@ jobs:
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
           sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
           
-          # ХИТРЫЙ ХАК: Расширяем пути инклудов (добавили папки IOMMU, Touchscreen и подпапки медиатека)
+          # ХИТРЫЙ ХАК: Расширяем пути инклудов
           echo "Добавляем скрытые папки MediaTek и Oppo в глобальный поиск инклудов..."
           sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp -I$(srctree)/drivers/gpu/drm/mediatek -I$(srctree)/drivers/iommu -I$(srctree)/drivers/input/touchscreen/oplus_touchscreen |g' Makefile
         fi
@@ -72,7 +72,7 @@ jobs:
           sed -i 's|#define TRACE_INCLUDE_PATH .|#define TRACE_INCLUDE_PATH ../../drivers/gpu/drm/mediatek|g' drivers/gpu/drm/mediatek/mtk_layering_rule_base.c || true
         fi
 
-        # 8. ФИКС ДЛЯ ПОД СИСТЕМЫ IOMMU И ТАЧСКРИНА (Автопоиск mtk_iommu_ext.h и touchpanel_prevention.h)
+        # 8. Фикс для подсистемы IOMMU и тачскрина
         echo "Ищем и линкуем разбросанные заголовки IOMMU и Touchscreen..."
         IOMMU_EXT_H=$(find . -name "mtk_iommu_ext.h" -print -quit)
         if [ ! -z "$IOMMU_EXT_H" ]; then
@@ -95,10 +95,14 @@ jobs:
           echo '#include <linux/cpuidle.h>' > include/linux/dt_idle_states.h
         fi
 
-        # 10. Фиксим ошибку inlining failed для ksm_flock
+        # 10. ФИКСЫ ИНЛАЙНОВ ДЛЯ КРИПТОГРАФИИ (ksm_flock и blk_crypto_flock)
         if [ -f include/linux/keyslot-manager.h ]; then
           echo "Убираем inline у функции ksm_flock..."
           sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
+        fi
+        if [ -f include/linux/blk-crypto.h ]; then
+          echo "Убираем inline у функции blk_crypto_flock..."
+          sed -i 's/inline void blk_crypto_flock/void blk_crypto_flock/g' include/linux/blk-crypto.h
         fi
         
         # 11. Вытаскиваем имя дефконфига
@@ -108,7 +112,7 @@ jobs:
         # 12. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
-        # 13. Отключаем STACKPROTECTOR and WERROR в сгенерированном .config
+        # 13. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
         if [ -f .config ]; then
           echo "Модифицируем .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
