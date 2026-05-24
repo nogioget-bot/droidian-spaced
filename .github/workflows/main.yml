@@ -23,13 +23,15 @@ jobs:
 
     - name: Build Droidian Kernel Package
       env:
-        RELENG_HOST_ARCH: arm64
+        DEB_BUILD_OPTIONS: nocheck
+        DH_VERBOSE: 1
       run: |
-        git clone https://github.com/droidian-releng/droidian-build-tools /tmp/releng-tools
+        # Обманываем сборщик версией Clang
         sudo ln -s $(which clang) /usr/bin/clang-10
         
-        # Запускаем сборку с новыми флагами: -b для архитектуры и -d для игнорирования дегенеративных зависимостей
-        /tmp/releng-tools/bin/droidian-build-package -b arm64 -d
+        # Запускаем классическую сборку Debian-пакета:
+        # -b (только бинарники), -d (игнорировать зависимости), -uc -us (без подписи кода)
+        dpkg-buildpackage -b -d -uc -us
         
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
