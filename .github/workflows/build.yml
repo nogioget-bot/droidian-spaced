@@ -19,8 +19,8 @@ jobs:
         DEB_BUILD_OPTIONS: nocheck
         DH_VERBOSE: 1
       run: |
-        # 1. Устанавливаем недостающий кросс-линкер (ld) и инструменты
-        sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
+        # 1. Устанавливаем кросс-компилятор GCC и линкер для arm64
+        sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu
         
         # 2. Создаем пути для компилятора
         sudo mkdir -p /usr/lib/llvm-android-10.0-r370808/bin
@@ -28,12 +28,11 @@ jobs:
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 3. ПОЛНОСТЬЮ ОТКЛЮЧАЕМ ВСЕ ВАРНИНГИ И РЕЖИМ WERROR
+        # 3. Полностью отключаем все предупреждения (warnings) в Makefile
         if [ -f Makefile ]; then
           echo "Глушим все предупреждения (warnings) в Makefile..."
           sed -i 's/-Werror//g' Makefile
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
-          # Добавляем флаг -w, чтобы скрыть предупреждения
           sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
         fi
         
@@ -57,7 +56,7 @@ jobs:
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 7. Генерируем базовый .config
+        # 7. Генерируем базовый .config (теперь компилятор на месте!)
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
         # 8. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
@@ -69,7 +68,7 @@ jobs:
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 9. Компиляция ядра (теперь в консоли будут только строки CC и реальные ошибки)
+        # 9. Компиляция ядра
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
         
         # 10. Упаковка в .deb
