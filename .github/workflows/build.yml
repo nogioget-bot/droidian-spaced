@@ -35,9 +35,8 @@ jobs:
           sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
           sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
           
-          # На всякий случай оставляем и инъекцию путей
           echo "Добавляем скрытые папки MediaTek и Oppo в глобальный поиск инклудов..."
-          sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp -I$(srctree)/drivers/gpu/drm/mediatek -I$(srctree)/drivers/iommu -I$(srctree)/drivers/input/touchscreen/oplus_touchscreen -I$(srctree)/drivers/misc/mediatek/adsp/common -I$(srctree)/drivers/misc/mediatek/adsp |g' Makefile
+          sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp -I$(srctree)/drivers/gpu/drm/mediatek -I$(srctree)/drivers/iommu -I$(srctree)/drivers/input/touchscreen/oplus_touchscreen |g' Makefile
         fi
         
         # 4. Фиксим пути трейсинга uifirst
@@ -84,18 +83,15 @@ jobs:
           cp "$TOUCH_H" include/linux/
         fi
 
-        # 9. ФИКС ДЛЯ ADSP (Копируем adsp_helper.h и adsp_core.h напрямую в инклуды)
-        echo "Выковыриваем adsp заголовочники во внешние инклуды..."
-        ADSP_HELP_H=$(find . -name "adsp_helper.h" -print -quit)
-        if [ ! -z "$ADSP_HELP_H" ]; then
-          cp "$ADSP_HELP_H" include/
-        fi
-        ADSP_CORE_H=$(find . -name "adsp_core.h" -print -quit)
-        if [ ! -z "$ADSP_CORE_H" ]; then
-          cp "$ADSP_CORE_H" include/
-        fi
+        # 9. КОВРОВАЯ БОМБАРДИРОВКА ДЛЯ ADSP (Копируем абсолютно все .h файлы из папки adsp)
+        echo "Собираем вообще все заголовочники из подсистемы ADSP..."
+        find drivers/misc/mediatek/adsp/ -name "*.h" -exec cp {} include/ \; 2>/dev/null || true
 
-        # 10. Фиксим dt_idle_states.h для cpuidle
+        # 10. КОВРОВАЯ БОМБАРДИРОВКА ДЛЯ MMC (Копируем все .h файлы, включая autok.h из drivers/mmc)
+        echo "Собираем вообще все заголовочники из подсистемы MMC..."
+        find drivers/mmc/host/mediatek/ -name "*.h" -exec cp {} include/ \; 2>/dev/null || true
+
+        # 11. Фиксим dt_idle_states.h для cpuidle
         echo "Фиксим dt_idle_states.h для cpuidle..."
         IDLE_H_PATH=$(find . -name "dt_idle_states.h" -print -quit)
         if [ ! -z "$IDLE_H_PATH" ]; then
@@ -106,7 +102,7 @@ jobs:
           echo '#include <linux/cpuidle.h>' > include/linux/dt_idle_states.h
         fi
 
-        # 11. Фиксы инлайнов для криптографии (ksm_flock и blk_crypto_flock)
+        # 12. Фиксы инлайнов для криптографии (ksm_flock и blk_crypto_flock)
         if [ -f include/linux/keyslot-manager.h ]; then
           echo "Убираем inline у функции ksm_flock..."
           sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
@@ -116,14 +112,14 @@ jobs:
           sed -i 's/inline void blk_crypto_flock/void blk_crypto_flock/g' include/linux/blk-crypto.h
         fi
         
-        # 12. Вытаскиваем имя дефконфига
+        # 13. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 13. Генерируем базовый .config
+        # 14. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
-        # 14. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
+        # 15. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
         if [ -f .config ]; then
           echo "Модифицируем .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
@@ -132,10 +128,10 @@ jobs:
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 15. Компиляция ядра
+        # 16. Компиляция ядра
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang HOSTCFLAGS="-w" HOSTCXXFLAGS="-w" Image.gz-dtb
         
-        # 16. Упаковка в .deb
+        # 17. Упаковка в .deb
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           mkdir -p deb-package/boot
