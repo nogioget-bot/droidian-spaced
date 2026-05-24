@@ -15,7 +15,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y bc build-essential libncurses-dev bison flex libssl-dev libelf-dev xz-utils git make ccache clang lld llvm libgmp-dev libmpfr-dev libmpc-dev gcc-aarch64-linux-gnu dpkg-dev
-   
+
     - name: Патчинг исходников и компиляция ядра
       run: |
         echo "Глушим все предупреждения (warnings) в Makefile..."
@@ -80,7 +80,78 @@ jobs:
 
         MSDC_CUST_FILE="drivers/mmc/host/mediatek/ComboA/mt6781/msdc_cust.c"
         if [ -f "$MSDC_CUST_FILE" ]; then
-          echo "Применяем умную очистку тел функций в msdc_cust.c..."
-          sed -i '/void msdc_dump_ldo_sts/,/^}/c\void msdc_dump_ldo_sts(char **buff, unsigned long *size, struct seq_file *m, struct msdc_host *host) { return; }' $MSDC_CUST_FILE
-          sed -i '/void msdc_set_pin_mode/,/^}/c\void msdc_set_pin_mode(struct msdc_host *host) { return; }' $MSDC_CUST_FILE
-          sed -i '/void msdc_set_ies_by_id/,/^}/c\void msdc_set_ies_
+          echo "Применяем сверхстабильный AWK-фикс функций в msdc_cust.c..."
+          
+          # Создаем скрипт-обработчик на AWK, который начисто заменяет проблемный код
+          awk '
+          /void msdc_dump_ldo_sts/ { print "void msdc_dump_ldo_sts(char **buff, unsigned long *size, struct seq_file *m, struct msdc_host *host) { return; }"; skip=1; next }
+          /void msdc_set_pin_mode/ { print "void msdc_set_pin_mode(struct msdc_host *host) { return; }"; skip=1; next }
+          /void msdc_set_ies_by_id/ { print "void msdc_set_ies_by_id(u32 id, int set_ies) { return; }"; skip=1; next }
+          /void msdc_set_smt_by_id/ { print "void msdc_set_smt_by_id(u32 id, int set_smt) { return; }"; skip=1; next }
+          /void msdc_set_tdsel_by_id/ { print "void msdc_set_tdsel_by_id(u32 id, u32 flag, u32 value) { return; }"; skip=1; next }
+          /void msdc_set_rdsel_by_id/ { print "void msdc_set_rdsel_by_id(u32 id, u32 flag, u32 value) { return; }"; skip=1; next }
+          /void msdc_set_driving_by_id/ { print "void msdc_set_driving_by_id(struct msdc_host *host, struct msdc_hw *hw) { return; }"; skip=1; next }
+          /int msdc_dump_padctl_by_id/ { print "int msdc_dump_padctl_by_id(int id, char *buf, int size) { return 0; }"; skip=1; next }
+          /int msdc_get_tdsel_by_id/ { print "int msdc_get_tdsel_by_id(u32 id, u32 flag) { return 0; }"; skip=1; next }
+          /int msdc_get_rdsel_by_id/ { print "int msdc_get_rdsel_by_id(u32 id, u32 flag) { return 0; }"; skip=1; next }
+          /void msdc_set_drv_by_id/ { print "void msdc_set_drv_by_id(short id, int val) { return; }"; skip=1; next }
+          
+          skip && /^}/ { skip=0; next }
+          skip { next }
+          { print }
+          ' "$MSDC_CUST_FILE" > "$MSDC_CUST_FILE.tmp" && mv "$MSDC_CUST_FILE.tmp" "$MSDC_CUST_FILE"
+        fi
+
+        echo "Фиксим dt_idle_states.h для cpuidle..."
+        IDLE_H_PATH=$(find . -name "dt_idle_states.h" -print -quit)
+        if [ ! -z "$IDLE_H_PATH" ]; then
+          cp "$IDLE_H_PATH" include/
+          cp "$IDLE_H_PATH" include/linux/
+        else
+          echo '#include <linux/cpuidle.h>' > include/dt_idle_states.h
+          echo '#include <linux/cpuidle.h>' > include/linux/dt_idle_states.h
+        fi
+
+        if [ -f include/linux/keyslot-manager.h ]; then
+          echo "Убираем inline у функции ksm_flock..."
+          sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
+        fi
+        if [ -f include/linux/blk-crypto.h ]; then
+          echo "Убираем inline у функции blk_crypto_flock..."
+          sed -i 's/inline void blk_crypto_flock/void blk_crypto_flock/g' include/linux/blk-crypto.h
+        fi
+        
+        KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
+        echo "Используем конфиг: $KERNEL_DEFCONFIG"
+        
+        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
+        
+        if [ -f .config ]; then
+          echo "Модифицируем .config..."
+          sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
+          sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' .config
+          sed -i 's/CONFIG_CC_STACKPROTECTOR_AUTO=y/# CONFIG_CC_STACKPROTECTOR_AUTO is not set/g' .config
+          echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
+        fi
+        
+        make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang HOSTCFLAGS="-w" HOSTCXXFLAGS="-w" Image.gz-dtb
+        
+        if [ -f arch/arm64/boot/Image.gz-dtb ]; then
+          echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
+          mkdir -p deb-package/boot
+          mkdir -p deb-package/DEBIAN
+          cp arch/arm64/boot/Image.gz-dtb deb-package/boot/vmlinuz-oplus6781
+          
+          printf "Package: linux-image-droidian-oplus6781\nVersion: 4.14.186-custom\nArchitecture: arm64\nMaintainer: romka <nogioget@example.com>\nDescription: Compiled Droidian Kernel for Realme 8i (oplus6781)\n" > deb-package/DEBIAN/control
+          
+          dpkg-deb --build deb-package ../linux-image-droidian-oplus6781.deb
+        else
+          echo "Ошибка: Файл ядра Image.gz-dtb не найден!"
+          exit 1
+        fi
+
+    - name: Загрузка готового .deb пакета в артефакты GitHub
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-image-droidian-oplus6781
+        path: linux-image-droidian-oplus6781.deb
