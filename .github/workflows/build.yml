@@ -51,15 +51,21 @@ jobs:
             sed -i 's/-implicit-function-declaration/-Wimplicit-function-declaration/g' "$file"
           fi
         done
+
+        # 6. ФИКС ОШИБКИ INLINING FAILED ДЛЯ ksm_flock
+        if [ -f include/linux/keyslot-manager.h ]; then
+          echo "Убираем inline у функции ksm_flock..."
+          sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
+        fi
         
-        # 6. Вытаскиваем имя дефконфига
+        # 7. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 7. Генерируем базовый .config (теперь компилятор на месте!)
+        # 8. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
-        # 8. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
+        # 9. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
         if [ -f .config ]; then
           echo "Модифицируем .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
@@ -68,10 +74,10 @@ jobs:
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 9. Компиляция ядра
-        make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang Image.gz-dtb
+        # 10. Компиляция ядра (с глушением утилит хоста)
+        make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang HOSTCFLAGS="-w" HOSTCXXFLAGS="-w" Image.gz-dtb
         
-        # 10. Упаковка в .deb
+        # 11. Упаковка в .deb
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           mkdir -p deb-package/boot
