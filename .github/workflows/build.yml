@@ -19,41 +19,89 @@ jobs:
         DEB_BUILD_OPTIONS: nocheck
         DH_VERBOSE: 1
       run: |
-        # 1. Устанавливаем необходимый тулчейн компилятора
+        # 1. Устанавливаем кросс-компилятор GCC и линкер для arm64
         sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu
         
-        # 2. Настраиваем системные пути компилятора
+        # 2. Создаем пути для компилятора
         sudo mkdir -p /usr/lib/llvm-android-10.0-r370808/bin
         sudo ln -sf $(which clang) /usr/lib/llvm-android-10.0-r370808/bin/clang
         sudo ln -sf $(which clang) /usr/bin/clang-10
         sudo ln -sf $(which aarch64-linux-gnu-gcc) /usr/lib/llvm-android-10.0-r370808/bin/clang-10
         
-        # 3. Запуск нашего скрипта автопочинки исходников
-        chmod +x patch_kernel.sh
-        ./patch_kernel.sh
+        # 3. Полностью отключаем все предупреждения (warnings) и Werror в Makefile
+        if [ -f Makefile ]; then
+          echo "Глушим все предупреждения (warnings) в Makefile..."
+          sed -i 's/-Werror//g' Makefile
+          sed -i 's/KBUILD_CFLAGS += -Werror//g' Makefile
+          sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -w /g' Makefile
+          
+          # ХИТРЫЙ ХАК: Добавляем проблемные папки MediaTek в глобальный путь поиска инклудов компилятора
+          echo "Добавляем скрытые папки MediaTek в глобальный поиск инклудов..."
+          sed -i 's|LINUXINCLUDE    :=|LINUXINCLUDE    := -I$(srctree)/drivers/devfreq/helio-dvfsrc-v3 -I$(srctree)/sound/soc/mediatek/audio_dsp |g' Makefile
+        fi
         
-        # 4. Получаем дефконфиг устройства
+        # 4. Фиксим пути трейсинга uifirst
+        if [ -f kernel/uifirst/uifirst_sched_trace.h ]; then
+          echo "Фиксим пути для uifirst_sched_trace.h..."
+          mkdir -p include/trace/events
+          cp kernel/uifirst/uifirst_sched_trace.h include/trace/events/uifirst_sched_trace.h
+          cp kernel/uifirst/uifirst_sched_trace.h include/uifirst_sched_trace.h
+          sed -i 's|#define TRACE_INCLUDE_PATH .|#define TRACE_INCLUDE_PATH ../../kernel/uifirst|g' kernel/uifirst/uifirst_sched_futex.c || true
+        fi
+
+        # 5. Фиксим ошибку инлинга в oplus_wakelock_profiler_mtk.c
+        if [ -f drivers/base/power/owakelock/oplus_wakelock_profiler_mtk.c ]; then
+          echo "Убираем ломающий extern inline у ws_all_release..."
+          sed -i 's/extern inline bool ws_all_release/bool ws_all_release/g' drivers/base/power/owakelock/oplus_wakelock_profiler_mtk.c
+        fi
+
+        # 6. Аккуратный фикс кривого флага декларации функций
+        echo "Фиксим флаг декларации функций..."
+        for file in Makefile arch/arm64/Makefile; do
+          if [ -f "$file" ]; then
+            sed -i 's/-implicit-function-declaration/-Wimplicit-function-declaration/g' "$file"
+          fi
+        done
+
+        # 7. Фиксим dt_idle_states.h для cpuidle
+        echo "Фиксим dt_idle_states.h для cpuidle..."
+        IDLE_H_PATH=$(find . -name "dt_idle_states.h" -print -quit)
+        if [ ! -z "$IDLE_H_PATH" ]; then
+          cp "$IDLE_H_PATH" include/
+          cp "$IDLE_H_PATH" include/linux/
+        else
+          echo '#include <linux/cpuidle.h>' > include/dt_idle_states.h
+          echo '#include <linux/cpuidle.h>' > include/linux/dt_idle_states.h
+        fi
+
+        # 8. Фиксим ошибку inlining failed для ksm_flock
+        if [ -f include/linux/keyslot-manager.h ]; then
+          echo "Убираем inline у функции ksm_flock..."
+          sed -i 's/inline void ksm_flock/void ksm_flock/g' include/linux/keyslot-manager.h
+        fi
+        
+        # 9. Вытаскиваем имя дефконфига
         KERNEL_DEFCONFIG=$(grep "KERNEL_DEFCONFIG" debian/kernel-info.mk | cut -d'=' -f2 | xargs || echo "oplus6781_defconfig")
         echo "Используем конфиг: $KERNEL_DEFCONFIG"
         
-        # 5. Генерируем базовый .config
+        # 10. Генерируем базовый .config
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang $KERNEL_DEFCONFIG
         
-        # 6. Твикаем защиту стека и werror внутри .config
+        # 11. Отключаем STACKPROTECTOR и WERROR в сгенерированном .config
         if [ -f .config ]; then
-          echo "Модифицируем параметры конфигурации ядра..."
+          echo "Модифицируем .config..."
           sed -i 's/CONFIG_WERROR=y/CONFIG_WERROR=n/g' .config
           sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' .config
           sed -i 's/CONFIG_CC_STACKPROTECTOR_AUTO=y/# CONFIG_CC_STACKPROTECTOR_AUTO is not set/g' .config
           echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> .config
         fi
         
-        # 7. Запуск сборки
+        # 12. Компиляция ядра
         make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- REAL_CC=clang HOSTCFLAGS="-w" HOSTCXXFLAGS="-w" Image.gz-dtb
         
-        # 8. Создание готового .deb пакета
+        # 13. Упаковка в .deb
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
-          echo "Ядро успешно собрано! Упаковываем..."
+          echo "Ядро успешно скомпилировано! Создаем структуру пакета..."
           mkdir -p deb-package/boot
           mkdir -p deb-package/DEBIAN
           cp arch/arm64/boot/Image.gz-dtb deb-package/boot/vmlinuz-oplus6781
@@ -68,7 +116,7 @@ jobs:
           
           dpkg-deb --build deb-package ../linux-image-droidian-oplus6781.deb
         else
-          echo "Ошибка: Файл ядра не найден!"
+          echo "Ошибка: Файл ядра Image.gz-dtb не найден!"
           exit 1
         fi
         
