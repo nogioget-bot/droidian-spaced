@@ -25,21 +25,16 @@ jobs:
       env:
         RELENG_HOST_ARCH: arm64
       run: |
-        # Клонируем инструменты сборки
+        # 1. Клонируем инструменты сборки
         git clone https://github.com/droidian-releng/droidian-build-tools /tmp/releng-tools
         
-        # Обманываем сборщик версией Clang
+        # 2. Обманываем сборщик версией Clang
         sudo ln -s $(which clang) /usr/bin/clang-10
         
-        # Шаг А: Генерируем пакет зависимостей сборки под наше ядро oplus6781
-        /tmp/releng-tools/bin/droidian-build-package -b arm64 --suppress-build || true
-        
-        # Шаг Б: Принудительно устанавливаем этот сгенерированный пакет зависимостей в систему
-        sudo dpkg -i linux-android-oplus6781-build-deps_*.deb || sudo apt-get install -f -y
-        
-        # Шаг В: Запускаем финальную компиляцию через родной скрипт Droidian без лишних флагов
+        # 3. Запускаем чистую сборку. Так как папка debian/ теперь на месте, 
+        # скрипт сам подхватит и твой kernel-info.mk, и инфу об адаптации!
         /tmp/releng-tools/bin/droidian-build-package -b arm64
-        
+
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
