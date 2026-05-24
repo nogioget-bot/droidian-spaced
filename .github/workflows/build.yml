@@ -24,6 +24,10 @@ jobs:
           sed -i 's/-Wformat/-w/g' Makefile
         fi
 
+        echo "ФИКС: Исправляем кривой флаг -implicit-function-declaration..."
+        # Находим все Makefile и Kbuild и меняем поломанный флаг на правильный вариант с -W
+        find . \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) -exec sed -i 's/-implicit-function-declaration/-Wimplicit-function-declaration/g' {} +
+
         echo "Добавляем скрытые папки MediaTek и Oppo в глобальный поиск инклудов..."
         LINUX_MAKEFILE="Makefile"
         if [ -f "$LINUX_MAKEFILE" ]; then
@@ -81,8 +85,6 @@ jobs:
         MSDC_CUST_FILE="drivers/mmc/host/mediatek/ComboA/mt6781/msdc_cust.c"
         if [ -f "$MSDC_CUST_FILE" ]; then
           echo "Применяем сверхстабильный AWK-фикс функций в msdc_cust.c..."
-          
-          # Создаем скрипт-обработчик на AWK, который начисто заменяет проблемный код
           awk '
           /void msdc_dump_ldo_sts/ { print "void msdc_dump_ldo_sts(char **buff, unsigned long *size, struct seq_file *m, struct msdc_host *host) { return; }"; skip=1; next }
           /void msdc_set_pin_mode/ { print "void msdc_set_pin_mode(struct msdc_host *host) { return; }"; skip=1; next }
